@@ -28,8 +28,8 @@ CREATE TABLE dim_product (
     product_id  INTEGER NOT NULL,
     sku         VARCHAR NOT NULL,
     name        VARCHAR NOT NULL,
-    category    VARCHAR,             -- Classic / Sport
-    family      VARCHAR,             -- Bottles
+    category    VARCHAR,
+    family      VARCHAR,
     list_price  DECIMAL(12, 2)
 );
 
@@ -43,22 +43,158 @@ SELECT
     f.name AS family,
     p.list_price
 FROM raw.product AS p
-LEFT JOIN raw.product_category AS c ON c.category_id = p.category_id   -- categoría
-LEFT JOIN raw.product_category AS f ON f.category_id = c.parent_id;    -- familia (categoría padre)
+LEFT JOIN raw.product_category AS c ON c.category_id = p.category_id
+LEFT JOIN raw.product_category AS f ON f.category_id = c.parent_id;
 
 
 -- ---------------------------------------------------------------------
--- TU TURNO: el resto de las dimensiones
+-- DIMENSIÓN FECHA
 -- ---------------------------------------------------------------------
--- Pensá qué preguntas tiene que responder el dashboard (por fecha, canal,
--- provincia, producto, cliente, tienda...) y creá una dimensión para cada una.
---
--- Tips:
---   * Generar todas las fechas entre dos días:
---       SELECT CAST(range AS DATE) AS fecha
---       FROM range(DATE '2024-01-01', DATE '2025-10-01', INTERVAL 1 DAY);
---   * Partes de una fecha: year(fecha), month(fecha), monthname(fecha), dayname(fecha)
---   * Clave numérica para una fecha (ej. 20240131):
---       CAST(strftime(fecha, '%Y%m%d') AS INTEGER)
---   * Si algo puede venir vacío (ej. NPS anónimos, sin cliente), podés agregar
---     una fila "Desconocido" con clave -1 y usar COALESCE(clave, -1) en los hechos.
+
+CREATE TABLE dim_date (
+    date_key    INTEGER PRIMARY KEY,
+    fecha       DATE NOT NULL,
+    anio        INTEGER NOT NULL,
+    mes         INTEGER NOT NULL,
+    nombre_mes  VARCHAR NOT NULL,
+    dia         INTEGER NOT NULL,
+    nombre_dia  VARCHAR NOT NULL
+);
+
+INSERT INTO dim_date
+SELECT
+    CAST(strftime(fecha, '%Y%m%d') AS INTEGER) AS date_key,
+    fecha,
+    year(fecha) AS anio,
+    month(fecha) AS mes,
+    monthname(fecha) AS nombre_mes,
+    day(fecha) AS dia,
+    dayname(fecha) AS nombre_dia
+FROM (
+    SELECT CAST(range AS DATE) AS fecha
+    FROM range(
+        DATE '2024-01-01',
+        DATE '2025-10-01',
+        INTERVAL 1 DAY
+    )
+);
+
+
+CREATE TABLE dim_channel (
+    channel_key INTEGER PRIMARY KEY,
+    channel_id INTEGER NOT NULL,
+    code VARCHAR NOT NULL,
+    name VARCHAR NOT NULL
+);
+
+INSERT INTO dim_channel
+SELECT
+    ROW_NUMBER() OVER (ORDER BY channel_id) AS channel_key,
+    channel_id,
+    code,
+    name
+FROM raw.channel;
+
+
+CREATE TABLE dim_customer (
+    customer_key INTEGER PRIMARY KEY,
+    customer_id INTEGER,
+    email VARCHAR,
+    first_name VARCHAR,
+    last_name VARCHAR,
+    phone VARCHAR,
+    status CHAR(1),
+    created_at TIMESTAMP
+);
+
+INSERT INTO dim_customer
+SELECT
+    -1,
+    NULL,
+    NULL,
+    'Desconocido',
+    'Desconocido',
+    NULL,
+    NULL,
+    NULL
+
+UNION ALL
+
+SELECT
+    ROW_NUMBER() OVER (ORDER BY customer_id),
+    customer_id,
+    email,
+    first_name,
+    last_name,
+    phone,
+    status,
+    created_at
+FROM raw.customer;
+
+
+CREATE TABLE dim_address (
+    address_key INTEGER PRIMARY KEY,
+    address_id INTEGER,
+    line1 VARCHAR,
+    line2 VARCHAR,
+    city VARCHAR,
+    province_id INTEGER,
+    province_name VARCHAR,
+    province_code VARCHAR,
+    postal_code VARCHAR,
+    country_code CHAR(2)
+);
+
+INSERT INTO dim_address
+SELECT
+    -1,
+    NULL,
+    NULL,
+    NULL,
+    'Desconocido',
+    NULL,
+    'Desconocido',
+    NULL,
+    NULL,
+    'AR'
+
+UNION ALL
+
+SELECT
+    ROW_NUMBER() OVER (ORDER BY a.address_id),
+    a.address_id,
+    a.line1,
+    a.line2,
+    a.city,
+    a.province_id,
+    p.name,
+    p.code,
+    a.postal_code,
+    a.country_code
+FROM raw.address AS a
+LEFT JOIN raw.province AS p
+    ON p.province_id = a.province_id;
+
+
+CREATE TABLE dim_store (
+    store_key INTEGER PRIMARY KEY,
+    store_id INTEGER,
+    name VARCHAR,
+    address_id INTEGER
+);
+
+INSERT INTO dim_store
+SELECT
+    -1,
+    NULL,
+    'Sin tienda',
+    NULL
+
+UNION ALL
+
+SELECT
+    ROW_NUMBER() OVER (ORDER BY store_id),
+    store_id,
+    name,
+    address_id
+FROM raw.store;
