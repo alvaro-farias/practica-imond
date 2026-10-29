@@ -113,7 +113,48 @@ def export_tables(con: duckdb.DuckDBPyConnection, tables: list[str]) -> None:
         con.sql(f"COPY main.\"{table}\" TO '{(DW_DIR / f'{table}.csv').as_posix()}' (HEADER)")
         print(f"  {table + '.csv':<32}{rows:>10} filas")
 
+def export_datamarts(con: duckdb.DuckDBPyConnection) -> None:
+    path = SQL_DIR / "04_datamarts.sql"
 
+    if not path.exists():
+        return
+
+    statements = con.extract_statements(path.read_text(encoding="utf-8"))
+
+    names = [
+        "mart_ventas",
+        "mart_usuarios_activos",
+        "mart_nps",
+        "mart_ranking_producto",
+        "mart_ventas_detalle",
+    ]
+
+    print("\nData marts exportados a dw/:")
+
+    for i, statement in enumerate(statements):
+        query = statement.query.strip().rstrip(";")
+
+        if not query:
+            continue
+
+        if i < len(names):
+            name = names[i]
+        else:
+            name = f"mart_{i + 1}"
+
+        output = DW_DIR / f"{name}.csv"
+
+        rows = con.sql(
+            f"SELECT COUNT(*) FROM ({query}) AS mart"
+        ).fetchone()[0]
+
+        con.sql(
+            f"COPY ({query}) "
+            f"TO '{output.as_posix()}' "
+            f"(HEADER, DELIMITER ',')"
+        )
+
+        print(f"  {name + '.csv':<32}{rows:>10} filas")
 def write_diagram(con: duckdb.DuckDBPyConnection, tables: list[str]) -> None:
     """Dibuja el modelo como diagrama Mermaid a partir de las PRIMARY KEY y FOREIGN KEY."""
     where = "WHERE database_name = current_database() AND schema_name = 'main'"
@@ -167,10 +208,11 @@ def build() -> duckdb.DuckDBPyConnection:
     tables = user_tables(con)
     if tables:
         export_tables(con, tables)
+        export_datamarts(con)
         write_diagram(con, tables)
     else:
         print("\nTodavía no se creó ninguna tabla.")
-    print(f"\nListo. Base de datos: {DATABASE.name}")
+        print(f"\nListo. Base de datos: {DATABASE.name}")
     return con
 
 
