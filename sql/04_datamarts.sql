@@ -3,6 +3,7 @@ SELECT
     d.anio,
     d.mes,
     d.nombre_mes,
+    strftime(d.fecha, '%Y-%m') AS periodo,
     c.code AS canal,
     a.province_name AS provincia,
     SUM(f.total_amount) AS ventas_totales,
@@ -31,6 +32,7 @@ SELECT
     d.anio,
     d.mes,
     d.nombre_mes,
+    strftime(d.fecha, '%Y-%m') AS periodo,
     COUNT(
         DISTINCT CASE
             WHEN f.customer_key <> -1
@@ -55,6 +57,7 @@ SELECT
     d.anio,
     d.mes,
     d.nombre_mes,
+    strftime(d.fecha, '%Y-%m') AS periodo,
     c.code AS canal,
     (
         100.0 * SUM(CASE WHEN f.is_promoter THEN 1 ELSE 0 END) / COUNT(*)
@@ -79,6 +82,7 @@ SELECT
     d.anio,
     d.mes,
     d.nombre_mes,
+    printf('%04d-%02d', d.anio, d.mes) AS periodo,
     p.name AS producto,
     SUM(f.line_total) AS ventas_producto
 FROM fact_sales_order_item AS f
