@@ -1,4 +1,5 @@
 SELECT
+    f.order_id,
     d.fecha,
     d.anio,
     d.mes,
@@ -6,9 +7,7 @@ SELECT
     strftime(d.fecha, '%Y-%m') AS periodo,
     c.code AS canal,
     a.province_name AS provincia,
-    SUM(f.total_amount) AS ventas_totales,
-    COUNT(*) AS cantidad_pedidos,
-    SUM(f.total_amount) / COUNT(*) AS ticket_promedio
+    f.total_amount
 FROM fact_sales_order AS f
 JOIN dim_date AS d
     ON d.date_key = f.date_key
@@ -17,13 +16,6 @@ JOIN dim_channel AS c
 JOIN dim_address AS a
     ON a.address_key = f.shipping_address_key
 WHERE f.is_sale = TRUE
-GROUP BY
-    d.fecha,
-    d.anio,
-    d.mes,
-    d.nombre_mes,
-    c.code,
-    a.province_name
 ORDER BY d.fecha;
 
 
@@ -100,3 +92,39 @@ ORDER BY
     d.anio,
     d.mes,
     ventas_producto DESC;
+
+
+SELECT
+    d.fecha,
+    d.anio,
+    d.mes,
+    d.nombre_mes,
+    strftime(d.fecha, '%Y-%m') AS periodo,
+    c.code AS canal,
+    a.province_name AS provincia,
+    p.name AS producto,
+    p.category AS categoria,
+    SUM(i.quantity) AS unidades_vendidas,
+    SUM(i.line_total) AS ventas_producto
+FROM fact_sales_order_item AS i
+JOIN fact_sales_order AS o
+    ON o.order_id = i.order_id
+JOIN dim_date AS d
+    ON d.date_key = i.date_key
+JOIN dim_channel AS c
+    ON c.channel_key = i.channel_key
+JOIN dim_product AS p
+    ON p.product_key = i.product_key
+JOIN dim_address AS a
+    ON a.address_key = o.shipping_address_key
+WHERE i.is_sale = TRUE
+GROUP BY
+    d.fecha,
+    d.anio,
+    d.mes,
+    d.nombre_mes,
+    c.code,
+    a.province_name,
+    p.name,
+    p.category
+ORDER BY d.fecha;
