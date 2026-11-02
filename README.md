@@ -1,206 +1,628 @@
-# Práctica — Introducción al Marketing Online y los Negocios Digitales
+# EcoBottle AR — Data Warehouse y Dashboard Comercial
 
-Este repositorio tiene los datos de **EcoBottle AR** para la práctica.
+## Descripción
 
-- **Consigna:** [Práctica](https://docs.google.com/document/d/15RNP3FVqLjO4jzh80AAkK6mUR5DOLqPxLjQxqvdzrYg/edit?usp=sharing)
-- **Diagrama de las tablas de origen (DER):** [ver más abajo](#diagrama-de-las-tablas-de-origen-der)
+Este trabajo práctico tiene como objetivo construir un pequeño ecosistema de datos para EcoBottle AR a partir de las tablas provistas en la carpeta `raw/`.
 
-## ¿Qué hay en el repositorio?
+A partir de esos datos se construyó un modelo estrella utilizando SQL y DuckDB, compuesto por dimensiones y tablas de hechos. Luego se generaron Data Marts con la información necesaria para calcular los principales indicadores comerciales.
 
+Finalmente, los resultados fueron utilizados como fuente para un dashboard interactivo desarrollado en Looker Studio.
+
+Los principales indicadores analizados son:
+
+- Ventas Totales
+- Usuarios Activos
+- Ticket Promedio
+- NPS
+- Ventas por Provincia
+- Ranking Mensual por Producto
+
+---
+
+## Estructura del proyecto
+
+```text
+practica-imond/
+│
+├── raw/
+│   └── Datos originales en formato CSV
+│
+├── sql/
+│   ├── 01_dimensiones.sql
+│   ├── 02_hechos.sql
+│   ├── 03_consultas.sql
+│   └── 04_datamarts.sql
+│
+├── dw/
+│   ├── Dimensiones exportadas a CSV
+│   ├── Hechos exportados a CSV
+│   ├── Data Marts exportados a CSV
+│   └── modelo_estrella.md
+│
+├── generator/
+│   └── Archivos utilizados para generar los datos originales
+│
+├── run_sql.py
+├── requirements.txt
+└── README.md
 ```
-raw/               los datos de origen: un archivo CSV por tabla (en SQL: raw.<tabla>)
-sql/               acá escribís tus transformaciones en SQL        ← tu trabajo va acá
-run_sql.py         ejecuta tus archivos SQL y arma el data warehouse
-requirements.txt   lo que hay que instalar (DuckDB)
-dw/                el data warehouse: se crea solo al ejecutar run_sql.py
-generator/         el programa que creó los datos de raw/ (no hace falta usarlo)
-assets/            el diagrama de tablas de origen (DER)
+
+El flujo general utilizado es:
+
+```text
+raw/
+  ↓
+SQL
+  ↓
+Modelo estrella
+  ↓
+Data Marts
+  ↓
+dw/
+  ↓
+Looker Studio
 ```
 
-> ⚠️ **No modifiques los archivos de `raw/`.** Son los datos de origen. Tus consultas SQL los leen y el resultado queda en `dw/`.
+Los archivos de `raw/` se consideran las fuentes originales y no son modificados.
 
-## Los datos en un minuto
+---
 
-- Son una **foto del sistema de ventas** de EcoBottle, tomada el **30/09/2025 a las 23:59:59**.
-- Tienen los pedidos del **01/01/2024 al 30/09/2025**.
-- Los montos están en **pesos argentinos**, y los precios de lista **no incluyen IVA**.
-- Las fechas y horas están en **hora de Argentina**.
-- Una **celda vacía** en un CSV significa que ese dato no existe. En SQL aparece como `NULL`.
+## Instalación y ejecución
 
-## Las tablas
+### 1. Crear el entorno virtual
 
-| Archivo | Qué guarda | Filas |
-|---|---|---:|
-| `channel.csv` | Los 2 canales de venta: `ONLINE` (web) y `OFFLINE` (tiendas) | 2 |
-| `province.csv` | Las 4 provincias donde opera la empresa | 4 |
-| `product_category.csv` | Categorías de producto: *Bottles* → *Classic* y *Sport* | 3 |
-| `product.csv` | Los 2 productos: Classic A y Sport B | 2 |
-| `store.csv` | Las 4 tiendas físicas | 4 |
-| `customer.csv` | Los clientes | ~3.500 |
-| `address.csv` | Las direcciones de clientes y tiendas | ~3.800 |
-| `sales_order.csv` | Los pedidos: quién compró, cuándo, por qué canal y cuánto pagó | ~12.000 |
-| `sales_order_item.csv` | Los productos de cada pedido (una fila por producto) | ~14.500 |
-| `payment.csv` | El pago de cada pedido | ~12.000 |
-| `shipment.csv` | Los envíos por correo | ~7.000 |
-| `web_session.csv` | Las visitas a la web | ~100.000 |
-| `nps_response.csv` | Las respuestas a la encuesta de satisfacción (NPS) | ~3.000 |
-
-En SQL, cada archivo es una tabla del esquema `raw`: `raw/sales_order.csv` se consulta como `raw.sales_order`.
-
-### Diagrama de las tablas de origen (DER)
-
-Cada caja es una tabla (un CSV de `raw/`) y cada línea une una clave foránea (FK) con la clave primaria (PK) a la que apunta.
-
-![Diagrama entidad-relación de las tablas de origen](./assets/DER.png)
-
-## Cómo leer los datos
-
-### Pedidos
-- **Pedido online:** `store_id` está vacío.
-- **Compra en tienda:** `store_id` indica la tienda, y la "dirección de envío" es la dirección de la tienda (el cliente se lleva el producto en el momento).
-- **Las cuentas siempre cierran:**
-  - `line_total` = cantidad × precio − descuento
-  - `subtotal` = suma de los `line_total` del pedido
-  - `tax_amount` = 21 % del subtotal (IVA)
-  - `total_amount` = subtotal + IVA + costo de envío
-
-### Estados de un pedido (`sales_order.status`)
-
-| Estado | Qué significa | ¿Cuenta como venta? |
-|---|---|:---:|
-| `CREATED` | Se hizo el pedido pero todavía no se pagó | No |
-| `PAID` | Está pagado pero todavía no se entregó | Sí |
-| `FULFILLED` | Ya se entregó (o se compró en la tienda) | Sí |
-| `CANCELLED` | Se canceló: el pago fue rechazado, no se pagó a tiempo o el cliente se arrepintió | No |
-| `REFUNDED` | Se entregó, pero después se devolvió el dinero | No |
-
-### Pagos y envíos
-- Cada pedido tiene **un pago**. Si el pago no se concretó, `paid_at` está vacío.
-- **Solo tienen envío** (`shipment`) los pedidos que viajan por correo: los online y algunos que la tienda manda a domicilio. Las compras en tienda no tienen envío.
-- **Estados del envío:**
-  - `READY`: se está preparando.
-  - `SHIPPED`: está viajando.
-  - `DELIVERED`: se entregó.
-  - `CANCELLED`: no salió.
-
-### Clientes y visitas a la web
-- Un cliente con `status = 'I'` dio de baja su cuenta. Sus compras anteriores siguen en los datos.
-- En `web_session`, un `customer_id` vacío es un visitante que no inició sesión.
-- **Origen de la visita** (`source`):
-  - `ads`: publicidad en redes.
-  - `direct`: entró directo o desde el newsletter.
-  - `referral`: vino de otro sitio o del newsletter.
-  - `organic`: buscadores.
-
-### Encuesta NPS
-- **Cuándo se manda:**
-  - Pedidos entregados por correo: **7 días después de la entrega**.
-  - Compras en tienda: **al día siguiente**.
-- El puntaje va de 0 a 10. Un `customer_id` vacío es una respuesta anónima.
-- La encuesta **no tiene número de pedido**: se relaciona con el cliente (`customer_id`) y con el canal (`channel_id`).
-
-## Para empezar
-
-Vas a escribir las transformaciones en **SQL** usando **DuckDB**, una base de datos que se instala con Python. No necesita servidor ni crear cuentas.
-
-### 1. Preparar tu computadora (una sola vez)
-
-Necesitás tener instalado Python 3.9 o más nuevo y Git. Primero hacé un **fork** de este repositorio en GitHub y después, en la terminal:
+Desde la carpeta del proyecto:
 
 ```bash
-git clone URL-DE-TU-FORK
-cd NOMBRE-DE-LA-CARPETA
 python -m venv .venv
 ```
 
-Activá el entorno virtual:
+En Windows:
 
-- **Mac / Linux:** `source .venv/bin/activate`
-- **Windows:** `.venv\Scripts\activate`
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 
-Instalá DuckDB:
+En Mac/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+### 2. Instalar dependencias
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> En Mac, si el comando `python` no existe, usá `python3`. Cada vez que abras una terminal nueva, volvé a activar el entorno.
+### 3. Explorar los datos originales
 
-### 2. Explorar las tablas de origen
+Para abrir DuckDB con las tablas de `raw/`:
 
 ```bash
 python run_sql.py --explorar
 ```
 
-Abre DuckDB en el navegador con las 13 tablas de origen cargadas. Hacé clic en una tabla para ver sus columnas y datos, y escribí consultas para conocerla:
+Esto permite consultar las tablas originales antes de ejecutar las transformaciones.
+
+Por ejemplo:
 
 ```sql
-SELECT * FROM raw.sales_order LIMIT 10;
-DESCRIBE raw.sales_order;
+SELECT *
+FROM raw.sales_order
+LIMIT 10;
 ```
 
-- **No ejecuta tus archivos de `sql/`**, así que funciona aunque todavía no hayas escrito nada o tengas errores.
-- **Necesita internet.** Sin conexión se abre una consola SQL en la terminal: terminás cada consulta con `;` y salís escribiendo `salir`.
-- **Para cerrar,** volvé a la terminal y presioná Enter.
-
-### 3. Escribir tus transformaciones en SQL
-
-| Archivo | Qué va adentro |
-|---|---|
-| `sql/01_dimensiones.sql` | Las tablas de dimensiones. Tiene un **ejemplo resuelto** (`dim_product`) para que veas cómo se hace. |
-| `sql/02_hechos.sql` | Las tablas de hechos, con sus `FOREIGN KEY` hacia las dimensiones. |
-| `sql/03_consultas.sql` | Consultas para revisar el modelo y calcular los KPIs. |
-
-Cuando una consulta te funciona mientras explorás, pasala al archivo que corresponde. Podés agregar más archivos: se ejecutan en orden alfabético (`01_...`, `02_...`, `03_...`).
-
-### 4. Armar el data warehouse
+### 4. Construir el Data Warehouse
 
 ```bash
 python run_sql.py
 ```
 
-Esto hace cuatro cosas:
+Este comando:
 
-1. Crea la base de datos `warehouse.duckdb` desde cero.
-2. Ejecuta tus archivos de `sql/` en orden y muestra en la terminal el resultado de cada `SELECT`.
-3. Guarda cada tabla que creaste como CSV en `dw/`. **Esos CSV son los que después abrís en Power BI.**
-4. Dibuja tu modelo estrella en `dw/modelo_estrella.md`.
+1. Crea nuevamente `warehouse.duckdb`.
+2. Ejecuta los archivos de `sql/` en orden.
+3. Construye las dimensiones y hechos.
+4. Ejecuta las consultas de los Data Marts.
+5. Exporta los resultados en formato CSV dentro de `dw/`.
+6. Genera el archivo `dw/modelo_estrella.md`.
 
-Si hay un error, te dice en qué archivo y en qué sentencia está y por qué falló. Lo corregís y volvés a ejecutar. Como todo se arma desde cero cada vez, no hace falta borrar tablas a mano.
-
-> La base `warehouse.duckdb` no se sube a GitHub (está en `.gitignore`): cualquiera la vuelve a crear con `python run_sql.py`.
-
-### 5. Ver tu modelo
-
-- **El diagrama:** abrí `dw/modelo_estrella.md` en GitHub y vas a ver el modelo dibujado, con las claves y las relaciones. Podés copiarlo en tu README. En VS Code se ve con la extensión *Markdown Preview Mermaid Support*.
-- **Tus tablas en el navegador:** `python run_sql.py --ui` arma el data warehouse y después abre DuckDB con tus tablas y las de origen, para revisar resultados y armar gráficos rápidos.
-
-### Mini guía de SQL en DuckDB
-
-```sql
--- Ver las primeras filas de una tabla de origen
-SELECT * FROM raw.sales_order LIMIT 10;
-
--- Ver sus columnas y tipos
-DESCRIBE raw.sales_order;
-
--- Agrupar por mes
-SELECT DATE_TRUNC('month', order_date) AS mes, COUNT(*) AS pedidos
-FROM raw.sales_order
-GROUP BY mes
-ORDER BY mes;
-```
-
-- **Datos vacíos:** se buscan con `IS NULL`, y `COALESCE(columna, valor)` reemplaza un vacío por un valor.
-- **Más ayuda:** [documentación de SQL de DuckDB](https://duckdb.org/docs/current/sql/introduction.html).
-
-## ¿Y la carpeta `generator/`?
-
-Es el programa que **inventó estos datos** simulando el negocio: clientes que se registran, compran, pagan, reciben el envío y responden la encuesta. **No lo necesitás para la práctica.** Si te interesa ver cómo se arma un conjunto de datos de prueba, podés leerlo; el detalle está en [`generator/README.md`](./generator/README.md).
-
-Si alguna vez querés volver a generar los datos o comprobar que están bien:
+### 5. Abrir el Data Warehouse en DuckDB
 
 ```bash
-python generator/generate_raw.py     # vuelve a crear los CSV de raw/ (salen idénticos)
-python generator/validate_raw.py     # revisa que los datos cumplan todas las reglas
+python run_sql.py --ui
 ```
+
+Esto permite revisar visualmente las tablas y ejecutar consultas sobre el modelo construido.
+
+---
+
+# Modelo estrella
+
+El modelo fue diseñado separando dimensiones descriptivas de tablas de hechos.
+
+## Dimensiones
+
+### `dim_date`
+
+Dimensión utilizada para realizar análisis temporales.
+
+| Campo | Descripción |
+|---|---|
+| `date_key` | Clave de la fecha en formato YYYYMMDD |
+| `fecha` | Fecha |
+| `anio` | Año |
+| `mes` | Número de mes |
+| `nombre_mes` | Nombre del mes |
+| `dia` | Día del mes |
+| `nombre_dia` | Nombre del día |
+
+---
+
+### `dim_product`
+
+Contiene la información de los productos.
+
+| Campo | Descripción |
+|---|---|
+| `product_key` | Clave subrogada del producto |
+| `product_id` | Identificador original |
+| `sku` | Código del producto |
+| `name` | Nombre |
+| `category` | Categoría |
+| `family` | Familia |
+| `list_price` | Precio de lista |
+
+La jerarquía de categorías se desnormaliza dentro de esta dimensión.
+
+---
+
+### `dim_customer`
+
+Información de clientes.
+
+| Campo | Descripción |
+|---|---|
+| `customer_key` | Clave subrogada |
+| `customer_id` | Identificador original |
+| `email` | Correo electrónico |
+| `first_name` | Nombre |
+| `last_name` | Apellido |
+| `status` | Estado del cliente |
+
+Se utiliza la clave `-1` para representar clientes desconocidos o sesiones anónimas cuando corresponde.
+
+---
+
+### `dim_channel`
+
+Canales comerciales.
+
+| Campo | Descripción |
+|---|---|
+| `channel_key` | Clave subrogada |
+| `channel_id` | Identificador original |
+| `code` | Código del canal |
+| `name` | Nombre |
+
+Los principales canales son `ONLINE` y `OFFLINE`.
+
+---
+
+### `dim_address`
+
+Información geográfica utilizada principalmente para analizar ventas por provincia.
+
+| Campo | Descripción |
+|---|---|
+| `address_key` | Clave subrogada |
+| `address_id` | Identificador original |
+| `city` | Ciudad |
+| `province_name` | Provincia |
+| `postal_code` | Código postal |
+| `country_code` | País |
+
+---
+
+### `dim_store`
+
+Información sobre los locales físicos.
+
+| Campo | Descripción |
+|---|---|
+| `store_key` | Clave subrogada |
+| `store_id` | Identificador original |
+| `name` | Nombre de la tienda |
+| `address_id` | Dirección asociada |
+
+---
+
+# Tablas de hechos
+
+## `fact_sales_order`
+
+**Grano:** una fila representa un pedido realizado por un cliente, en un canal y una fecha determinada.
+
+Contiene información proveniente principalmente de:
+
+- `sales_order`
+- `payment`
+- `shipment`
+
+Campos principales:
+
+| Campo | Descripción |
+|---|---|
+| `order_id` | Identificador del pedido |
+| `date_key` | Fecha del pedido |
+| `customer_key` | Cliente |
+| `channel_key` | Canal |
+| `shipping_address_key` | Dirección de envío |
+| `total_amount` | Importe total |
+| `is_sale` | Indica si el pedido cuenta como venta |
+
+Se consideran ventas los pedidos con estado `PAID` o `FULFILLED`.
+
+---
+
+## `fact_sales_order_item`
+
+**Grano:** una fila representa un producto dentro de un pedido.
+
+Campos principales:
+
+| Campo | Descripción |
+|---|---|
+| `order_item_id` | Identificador del ítem |
+| `order_id` | Pedido |
+| `product_key` | Producto |
+| `date_key` | Fecha |
+| `channel_key` | Canal |
+| `quantity` | Cantidad |
+| `line_total` | Importe de la línea |
+| `is_sale` | Indica si corresponde a una venta |
+
+Esta tabla se utiliza principalmente para analizar las ventas por producto.
+
+---
+
+## `fact_web_session`
+
+**Grano:** una fila representa una sesión de navegación web.
+
+Campos principales:
+
+| Campo | Descripción |
+|---|---|
+| `session_id` | Identificador de sesión |
+| `customer_key` | Cliente, si inició sesión |
+| `date_key` | Fecha |
+| `source` | Origen de la visita |
+| `device` | Dispositivo |
+
+Es la fuente utilizada para calcular usuarios activos.
+
+---
+
+## `fact_nps_response`
+
+**Grano:** una fila representa una respuesta a una encuesta NPS.
+
+Campos principales:
+
+| Campo | Descripción |
+|---|---|
+| `nps_id` | Identificador de respuesta |
+| `customer_key` | Cliente |
+| `channel_key` | Canal |
+| `date_key` | Fecha |
+| `score` | Puntaje de 0 a 10 |
+| `is_promoter` | Indica si el puntaje es 9 o 10 |
+| `is_detractor` | Indica si el puntaje se encuentra entre 0 y 6 |
+
+---
+
+# Data Marts
+
+Los Data Marts se generan a partir del modelo estrella. Ninguno consume directamente las tablas de `raw/`.
+
+## `mart_ventas.csv`
+
+Contiene una fila por pedido válido como venta.
+
+Se utiliza para:
+
+- Ventas Totales
+- Ticket Promedio
+- Evolución temporal de ventas
+- Análisis por canal
+- Análisis por provincia
+
+---
+
+## `mart_usuarios_activos.csv`
+
+Contiene la cantidad de usuarios activos por fecha.
+
+Para usuarios identificados se utiliza `customer_key`. Para usuarios anónimos se utiliza `session_id`.
+
+Se utiliza para:
+
+- Tarjeta de Usuarios Activos
+- Evolución temporal de Usuarios Activos
+
+---
+
+## `mart_nps.csv`
+
+Contiene el NPS agregado por mes y canal.
+
+Se utiliza para:
+
+- Tarjeta de NPS
+- Tendencia mensual de NPS
+- Comparación por canal
+
+---
+
+## `mart_ranking_producto.csv`
+
+Contiene las ventas mensuales agrupadas por producto.
+
+Se utiliza para construir el Ranking Mensual por Producto.
+
+---
+
+## `mart_ventas_detalle.csv`
+
+Contiene información de ventas con mayor nivel de detalle.
+
+Incluye:
+
+- Fecha
+- Canal
+- Provincia
+- Producto
+- Categoría
+- Unidades vendidas
+- Importe vendido
+
+Se utiliza principalmente para los gráficos y filtros interactivos del dashboard.
+
+---
+
+# Definición de KPIs
+
+## Ventas Totales
+
+Se consideran únicamente pedidos válidos como venta.
+
+```sql
+SUM(total_amount)
+```
+
+con pedidos cuyo estado sea `PAID` o `FULFILLED`.
+
+---
+
+## Ticket Promedio
+
+Representa el importe promedio de los pedidos considerados ventas.
+
+```sql
+SUM(total_amount) / COUNT(*)
+```
+
+---
+
+## Usuarios Activos
+
+Para sesiones identificadas se utiliza el cliente.
+
+Para sesiones anónimas se utiliza el identificador de sesión.
+
+La lógica utilizada es:
+
+```sql
+COUNT(
+    DISTINCT CASE
+        WHEN customer_key <> -1
+            THEN 'cliente_' || CAST(customer_key AS VARCHAR)
+        ELSE
+            'anonimo_' || CAST(session_id AS VARCHAR)
+    END
+)
+```
+
+---
+
+## NPS
+
+Los puntajes se clasifican de la siguiente manera:
+
+- Promotores: 9 y 10
+- Pasivos: 7 y 8
+- Detractores: 0 a 6
+
+El cálculo utilizado es:
+
+```text
+NPS = % Promotores - % Detractores
+```
+
+El Data Mart utilizado para la tendencia se encuentra agregado por mes y canal.
+
+---
+
+## Ventas por Provincia
+
+Las ventas se relacionan con la dirección de envío y posteriormente con la provincia.
+
+```sql
+SUM(total_amount)
+GROUP BY provincia
+```
+
+---
+
+## Ranking mensual por Producto
+
+Se utilizan los ítems de pedido y se agrupan las ventas por producto y mes.
+
+```sql
+SUM(line_total)
+GROUP BY periodo, producto
+```
+
+---
+
+# Supuestos
+
+Para el desarrollo del modelo se utilizaron los siguientes supuestos:
+
+- Los archivos de `raw/` representan los datos originales y no se modifican.
+- Los montos se encuentran expresados en pesos argentinos.
+- Se consideran ventas los pedidos con estado `PAID` o `FULFILLED`.
+- Los pedidos `CREATED`, `CANCELLED` y `REFUNDED` no se consideran ventas.
+- Las ventas por provincia se asignan utilizando la dirección de envío del pedido.
+- En sesiones web, cuando no existe un cliente identificado, el usuario activo se representa mediante `session_id`.
+- Las claves utilizadas por las tablas de hechos son claves subrogadas de las dimensiones.
+- Se utiliza la clave `-1` para representar valores desconocidos cuando corresponde.
+- Los Data Marts consumen únicamente información del modelo estrella y no acceden directamente a `raw/`.
+- Para mostrar la tendencia de NPS se utiliza una agregación mensual por canal.
+- Los Data Marts contienen únicamente consultas `SELECT`. La exportación a CSV se realiza mediante `run_sql.py`.
+
+---
+
+# Dashboard
+
+El dashboard fue desarrollado utilizando Looker Studio y se encuentra dividido en dos páginas.
+
+## Página 1 — Exploración de ventas
+
+Permite analizar las ventas utilizando los siguientes filtros:
+
+- Fecha
+- Provincia
+- Canal
+- Producto
+- Categoría
+
+Incluye:
+
+- Ventas por Provincia
+- Ventas por Producto
+
+---
+
+## Página 2 — KPIs y tendencias
+
+Incluye:
+
+- Ventas Totales
+- Ticket Promedio
+- Usuarios Activos
+- NPS
+- Evolución de Ventas
+- Ranking mensual por Producto
+- Evolución de Usuarios Activos
+- Tendencia de NPS
+
+El objetivo de esta página es mostrar los principales indicadores comerciales y su evolución en el tiempo.
+
+---
+
+# Consultas de control
+
+Algunas consultas utilizadas para revisar el modelo son:
+
+### Ventas Totales
+
+```sql
+SELECT
+    SUM(total_amount) AS ventas_totales
+FROM fact_sales_order
+WHERE is_sale = TRUE;
+```
+
+### Cantidad de pedidos
+
+```sql
+SELECT
+    COUNT(*) AS cantidad_pedidos
+FROM fact_sales_order
+WHERE is_sale = TRUE;
+```
+
+### Ticket Promedio
+
+```sql
+SELECT
+    SUM(total_amount) / COUNT(*) AS ticket_promedio
+FROM fact_sales_order
+WHERE is_sale = TRUE;
+```
+
+### Ventas por Provincia
+
+```sql
+SELECT
+    a.province_name AS provincia,
+    SUM(f.total_amount) AS ventas_totales
+FROM fact_sales_order AS f
+JOIN dim_address AS a
+    ON a.address_key = f.shipping_address_key
+WHERE f.is_sale = TRUE
+GROUP BY a.province_name
+ORDER BY ventas_totales DESC;
+```
+
+### Ranking de productos
+
+```sql
+SELECT
+    d.anio,
+    d.mes,
+    p.name AS producto,
+    SUM(f.line_total) AS ventas_producto
+FROM fact_sales_order_item AS f
+JOIN dim_date AS d
+    ON d.date_key = f.date_key
+JOIN dim_product AS p
+    ON p.product_key = f.product_key
+WHERE f.is_sale = TRUE
+GROUP BY
+    d.anio,
+    d.mes,
+    p.name
+ORDER BY
+    d.anio,
+    d.mes,
+    ventas_producto DESC;
+```
+
+---
+
+# Herramientas utilizadas
+
+- Python
+- DuckDB
+- SQL
+- Visual Studio Code
+- Git
+- GitHub
+- Google Sheets
+- Looker Studio
+
+---
+
+# Resultado
+
+El proyecto permite transformar los datos originales de EcoBottle AR en un modelo analítico que puede ser reconstruido completamente ejecutando:
+
+```bash
+python run_sql.py
+```
+
+Los archivos resultantes se generan dentro de `dw/` y son utilizados posteriormente como fuente del dashboard comercial.
