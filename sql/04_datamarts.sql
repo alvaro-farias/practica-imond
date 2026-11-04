@@ -45,29 +45,41 @@ ORDER BY d.fecha;
 
 
 SELECT
-    d.fecha,
+    CAST(date_trunc('month', d.fecha) AS DATE) AS fecha,
     d.anio,
     d.mes,
     d.nombre_mes,
-    strftime(d.fecha, '%Y-%m') AS periodo,
+    printf('%04d-%02d', d.anio, d.mes) AS periodo,
     c.code AS canal,
+
     (
         100.0 * SUM(CASE WHEN f.is_promoter THEN 1 ELSE 0 END) / COUNT(*)
         -
         100.0 * SUM(CASE WHEN f.is_detractor THEN 1 ELSE 0 END) / COUNT(*)
-    ) AS nps
+    ) AS nps,
+
+    (
+        SELECT
+            100.0 * SUM(CASE WHEN n.is_promoter THEN 1 ELSE 0 END) / COUNT(*)
+            -
+            100.0 * SUM(CASE WHEN n.is_detractor THEN 1 ELSE 0 END) / COUNT(*)
+        FROM fact_nps_response AS n
+    ) AS nps_general
+
 FROM fact_nps_response AS f
 JOIN dim_date AS d
     ON d.date_key = f.date_key
 JOIN dim_channel AS c
     ON c.channel_key = f.channel_key
 GROUP BY
-    d.fecha,
+    CAST(date_trunc('month', d.fecha) AS DATE),
     d.anio,
     d.mes,
     d.nombre_mes,
     c.code
-ORDER BY d.fecha;
+ORDER BY
+    fecha,
+    c.code;
 
 
 SELECT
