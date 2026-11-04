@@ -52,19 +52,27 @@ SELECT
     printf('%04d-%02d', d.anio, d.mes) AS periodo,
     c.code AS canal,
 
+    SUM(
+        CASE
+            WHEN f.is_promoter THEN 1
+            ELSE 0
+        END
+    ) AS promotores,
+
+    SUM(
+        CASE
+            WHEN f.is_detractor THEN 1
+            ELSE 0
+        END
+    ) AS detractores,
+
+    COUNT(*) AS respuestas,
+
     (
         100.0 * SUM(CASE WHEN f.is_promoter THEN 1 ELSE 0 END) / COUNT(*)
         -
         100.0 * SUM(CASE WHEN f.is_detractor THEN 1 ELSE 0 END) / COUNT(*)
-    ) AS nps,
-
-    (
-        SELECT
-            100.0 * SUM(CASE WHEN n.is_promoter THEN 1 ELSE 0 END) / COUNT(*)
-            -
-            100.0 * SUM(CASE WHEN n.is_detractor THEN 1 ELSE 0 END) / COUNT(*)
-        FROM fact_nps_response AS n
-    ) AS nps_general
+    ) AS nps
 
 FROM fact_nps_response AS f
 JOIN dim_date AS d
