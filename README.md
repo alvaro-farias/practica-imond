@@ -67,9 +67,9 @@ Los archivos de `raw/` se consideran las fuentes originales y no son modificados
 
 ---
 
-## Instalación y ejecución
+# Instalación y ejecución
 
-### 1. Crear el entorno virtual
+## 1. Crear el entorno virtual
 
 Desde la carpeta del proyecto:
 
@@ -89,13 +89,13 @@ En Mac/Linux:
 source .venv/bin/activate
 ```
 
-### 2. Instalar dependencias
+## 2. Instalar dependencias
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Explorar los datos originales
+## 3. Explorar los datos originales
 
 Para abrir DuckDB con las tablas de `raw/`:
 
@@ -113,7 +113,7 @@ FROM raw.sales_order
 LIMIT 10;
 ```
 
-### 4. Construir el Data Warehouse
+## 4. Construir el Data Warehouse
 
 ```bash
 python run_sql.py
@@ -128,7 +128,7 @@ Este comando:
 5. Exporta los resultados en formato CSV dentro de `dw/`.
 6. Genera el archivo `dw/modelo_estrella.md`.
 
-### 5. Abrir el Data Warehouse en DuckDB
+## 5. Abrir el Data Warehouse en DuckDB
 
 ```bash
 python run_sql.py --ui
@@ -356,13 +356,22 @@ Se utiliza para:
 
 ## `mart_nps.csv`
 
-Contiene el NPS agregado por mes y canal.
+Contiene la información de NPS agregada por mes y canal.
+
+Para cada período y canal se almacenan:
+
+- Cantidad de promotores
+- Cantidad de detractores
+- Cantidad de respuestas
+- NPS del período
+
+El Data Mart permite calcular correctamente el NPS tanto para el período completo como cuando se aplican filtros por fecha o canal.
 
 Se utiliza para:
 
 - Tarjeta de NPS
 - Tendencia mensual de NPS
-- Comparación por canal
+- Comparación entre canales `ONLINE` y `OFFLINE`
 
 ---
 
@@ -451,7 +460,11 @@ El cálculo utilizado es:
 NPS = % Promotores - % Detractores
 ```
 
-El Data Mart utilizado para la tendencia se encuentra agregado por mes y canal.
+Para permitir que el indicador responda correctamente a los filtros del dashboard, el Data Mart almacena por mes y canal la cantidad de promotores, detractores y respuestas.
+
+El NPS general del período completo es aproximadamente **30 puntos**.
+
+Para la tendencia se utiliza el NPS mensual separado por canal.
 
 ---
 
@@ -497,13 +510,16 @@ Para el desarrollo del modelo se utilizaron los siguientes supuestos:
 
 # Dashboard
 
-El dashboard fue desarrollado utilizando Looker Studio y se encuentra dividido en dos páginas.
+El dashboard fue desarrollado en Looker Studio y se encuentra dividido en tres páginas.
+
+**Dashboard:**  
+https://datastudio.google.com/reporting/f8167a2f-f228-4668-93c2-f00febd37c5e
 
 ## Página 1 — Exploración de ventas
 
-Permite analizar las ventas utilizando los siguientes filtros:
+Esta página permite explorar las ventas mediante distintos filtros:
 
-- Fecha
+- Período
 - Provincia
 - Canal
 - Producto
@@ -514,22 +530,47 @@ Incluye:
 - Ventas por Provincia
 - Ventas por Producto
 
+El objetivo es permitir una exploración simple de las ventas desde distintas dimensiones del modelo.
+
 ---
 
 ## Página 2 — KPIs y tendencias
 
-Incluye:
+Presenta los principales indicadores comerciales:
 
 - Ventas Totales
 - Ticket Promedio
 - Usuarios Activos
 - NPS
+
+También incluye:
+
 - Evolución de Ventas
 - Ranking mensual por Producto
 - Evolución de Usuarios Activos
 - Tendencia de NPS
 
-El objetivo de esta página es mostrar los principales indicadores comerciales y su evolución en el tiempo.
+Para el período completo analizado se obtienen aproximadamente:
+
+- Ventas Totales: $382,41 millones
+- Ticket Promedio: $34.770,93
+- NPS: 30 puntos
+
+Los valores pueden variar cuando se utilizan los filtros disponibles en el dashboard.
+
+---
+
+## Página 3 — Análisis adicional
+
+Esta página incorpora visualizaciones adicionales para profundizar el análisis comercial.
+
+Incluye:
+
+- Ventas mensuales por canal
+- Participación de ventas por canal
+- NPS mensual por canal
+
+La comparación entre canales permite analizar diferencias entre las ventas `ONLINE` y `OFFLINE` y observar su evolución durante el período analizado.
 
 ---
 
@@ -537,7 +578,7 @@ El objetivo de esta página es mostrar los principales indicadores comerciales y
 
 Algunas consultas utilizadas para revisar el modelo son:
 
-### Ventas Totales
+## Ventas Totales
 
 ```sql
 SELECT
@@ -546,7 +587,7 @@ FROM fact_sales_order
 WHERE is_sale = TRUE;
 ```
 
-### Cantidad de pedidos
+## Cantidad de pedidos
 
 ```sql
 SELECT
@@ -555,7 +596,7 @@ FROM fact_sales_order
 WHERE is_sale = TRUE;
 ```
 
-### Ticket Promedio
+## Ticket Promedio
 
 ```sql
 SELECT
@@ -564,7 +605,18 @@ FROM fact_sales_order
 WHERE is_sale = TRUE;
 ```
 
-### Ventas por Provincia
+## NPS general
+
+```sql
+SELECT
+    100.0 * SUM(CASE WHEN is_promoter THEN 1 ELSE 0 END) / COUNT(*)
+    -
+    100.0 * SUM(CASE WHEN is_detractor THEN 1 ELSE 0 END) / COUNT(*)
+    AS nps_general
+FROM fact_nps_response;
+```
+
+## Ventas por Provincia
 
 ```sql
 SELECT
@@ -578,7 +630,7 @@ GROUP BY a.province_name
 ORDER BY ventas_totales DESC;
 ```
 
-### Ranking de productos
+## Ranking de productos
 
 ```sql
 SELECT
@@ -619,10 +671,15 @@ ORDER BY
 
 # Resultado
 
-El proyecto permite transformar los datos originales de EcoBottle AR en un modelo analítico que puede ser reconstruido completamente ejecutando:
+El proyecto permite transformar los datos originales de EcoBottle AR en un modelo analítico reproducible utilizando SQL y DuckDB.
+
+El Data Warehouse puede reconstruirse completamente ejecutando:
 
 ```bash
 python run_sql.py
 ```
 
-Los archivos resultantes se generan dentro de `dw/` y son utilizados posteriormente como fuente del dashboard comercial.
+Los resultados se exportan dentro de `dw/` y los Data Marts generados se utilizan como fuente para el dashboard comercial desarrollado en Looker Studio.
+
+**Dashboard final:**  
+https://datastudio.google.com/reporting/f8167a2f-f228-4668-93c2-f00febd37c5e
